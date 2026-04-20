@@ -137,7 +137,13 @@ if __name__ == '__main__':
     atexit.register(cleanup)
 
     print("  [2/4] Starting POX Controller in background...")
-    pox_path = os.path.expanduser('~/pox/pox.py')
+    # When running with sudo, ~ expands to /root. We want the original user's home folder.
+    sudo_user = os.environ.get('SUDO_USER')
+    if sudo_user:
+        pox_path = f'/home/{sudo_user}/pox/pox.py'
+    else:
+        pox_path = os.path.expanduser('~/pox/pox.py')
+        
     pox_process = subprocess.Popen(
         [pox_path, 'router'],
         stdout=subprocess.DEVNULL,
