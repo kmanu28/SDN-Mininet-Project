@@ -63,8 +63,8 @@ def create_topology():
     info("                         h2 (10.0.0.2)      \n\n")
 
     info("*** IMPORTANT TESTING COMMANDS ***\n")
-    info("  [Allowed Traffic] h1 ping h3\n")
-    info("  [Blocked Traffic] h2 ping h3\n")
+    info("  [Allowed Traffic] h1 ping 10.0.0.3\n")
+    info("  [Blocked Traffic] h2 ping 10.0.0.3\n")
     info("  [Bandwidth Test] h3 iperf -s & / h1 iperf -c 10.0.0.3 -t 5\n")
     info("  [Inspect s2 flows] sh ovs-ofctl dump-flows s2\n\n")
 
