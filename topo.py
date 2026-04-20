@@ -40,11 +40,13 @@ def build_net():
     h3 = net.addHost('h3', ip='10.0.0.3/24', mac='00:00:00:00:00:03')
 
     info("*** Adding links\n")
-    net.addLink(h1, s1)   # s1 port 1 -> h1
-    net.addLink(s1, s2)   # s1 port 2 -> s2 port 2
-    net.addLink(h2, s2)   # s2 port 1 -> h2
-    net.addLink(s2, s3)   # s2 port 3 -> s3 port 2
-    net.addLink(h3, s3)   # s3 port 1 -> h3
+    # Host links first — determines port numbering on each switch
+    net.addLink(h1, s1)   # s1: port 1 = h1
+    net.addLink(h2, s2)   # s2: port 1 = h2
+    net.addLink(h3, s3)   # s3: port 1 = h3
+    # Switch-to-switch links
+    net.addLink(s1, s2)   # s1: port 2 = s2  |  s2: port 2 = s1
+    net.addLink(s2, s3)   # s2: port 3 = s3  |  s3: port 2 = s2
 
     return net
 

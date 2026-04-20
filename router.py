@@ -128,7 +128,7 @@ class HybridController(object):
         dpid = event.dpid
         pkt = event.parsed
 
-        if not pkt.parsed:
+        if pkt is None or not pkt.parsed:
             return
 
         arp_pkt = pkt.find('arp')
