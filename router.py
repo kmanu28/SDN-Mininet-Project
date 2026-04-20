@@ -17,13 +17,7 @@ from pox.lib.packet.arp import arp
 
 log = core.getLogger()
 
-# --- Firewall Access Control List (Blocked Routes) ---
-FIREWALL_RULES = [
-    ('10.0.0.2', '10.0.0.3'),  # Block h2 -> h3
-    ('10.0.0.3', '10.0.0.2')   # Block h3 -> h2
-]
-
-# --- Static IP Routing Table ---
+# --- Complete IP Static Routing Table ---
 STATIC_ROUTES = {
     # Switch 1
     (1, '10.0.0.1', '10.0.0.2'): 2,
@@ -53,24 +47,25 @@ ARP_ROUTES = {
     (3, '10.0.0.1'): 2, (3, '10.0.0.2'): 2, (3, '10.0.0.3'): 1,
 }
 
-class HybridController(object):
+class RoutingController(object):
 
     def __init__(self):
         core.openflow.addListeners(self)
-        log.info("Hybrid Router/Firewall Started.")
+        log.info("Static Router Started. No firewall active. All traffic allowed.")
 
     def _handle_ConnectionUp(self, event):
         dpid = event.dpid
-        log.info("Switch s%s connected. Installing rules...", dpid)
+        log.info("Switch s%s connected. Installing static routes...", dpid)
 
         self._install_table_miss(event.connection)
-        self._install_firewall_rules(event.connection, dpid)
         self._install_routing_rules(event.connection, dpid)
 
     def _send_flow_mod(self, connection, priority, dl_type=None,
                        nw_src=None, nw_dst=None, out_port=None):
         msg = of.ofp_flow_mod()
         msg.priority = priority
+        msg.idle_timeout = 0
+        msg.hard_timeout = 0
 
         if dl_type is not None:
             msg.match.dl_type = dl_type
@@ -84,27 +79,16 @@ class HybridController(object):
         connection.send(msg)
 
     def _install_table_miss(self, connection):
-        """Send all unmatched packets to the controller (packet_in)."""
+        """Send all unmatched packets to the controller."""
         self._send_flow_mod(
             connection=connection,
             priority=0,
             out_port=of.OFPP_CONTROLLER
         )
 
-    def _install_firewall_rules(self, connection, dpid):
-        """Install rules with priority=100 that DROP matched traffic."""
-        for src_ip, dst_ip in FIREWALL_RULES:
-            self._send_flow_mod(
-                connection=connection,
-                priority=100,
-                dl_type=0x0800,
-                nw_src=src_ip,
-                nw_dst=dst_ip
-            )
-            log.info("  [FIREWALL s%s] Blocked %s -> %s", dpid, src_ip, dst_ip)
-
     def _install_routing_rules(self, connection, dpid):
-        """Install rules with priority=10 that FORWARD matched traffic."""
+        """Install rules with priority=10 that route specific IP traffic."""
+        count = 0
         for (sw_id, src_ip, dst_ip), out_port in STATIC_ROUTES.items():
             if sw_id == dpid:
                 self._send_flow_mod(
@@ -115,16 +99,12 @@ class HybridController(object):
                     nw_dst=dst_ip,
                     out_port=out_port
                 )
-                log.info(
-                    "  [ROUTER s%s] Route %s -> %s via port %s",
-                    dpid,
-                    src_ip,
-                    dst_ip,
-                    out_port
-                )
+                count += 1
+                log.info("  [ROUTE s%s] %s -> %s => port %s", dpid, src_ip, dst_ip, out_port)
+        log.info("  Total static routes installed on s%s: %s", dpid, count)
 
     def _handle_PacketIn(self, event):
-        """Handle packets not matched by the switch flow tables (e.g. ARP)."""
+        """Handle packets not matched by the switch flow tables (e.g. ARP, or fallback IP)."""
         dpid = event.dpid
         pkt = event.parsed
 
@@ -140,7 +120,6 @@ class HybridController(object):
                 out_port = ARP_ROUTES[key]
                 if out_port == event.port:
                     return
-                # Tell the switch to output this specific packet
                 msg = of.ofp_packet_out()
                 msg.data = event.ofp
                 msg.in_port = event.port
@@ -153,7 +132,34 @@ class HybridController(object):
                 msg.in_port = event.port
                 msg.actions.append(of.ofp_action_output(port=of.OFPP_FLOOD))
                 event.connection.send(msg)
+            return
 
+        # Fallback for IP packets that trigger packet_in (e.g., when rules are deleted)
+        ip_pkt = pkt.find('ipv4')
+        if ip_pkt:
+            ip_src = str(ip_pkt.srcip)
+            ip_dst = str(ip_pkt.dstip)
+            key = (dpid, ip_src, ip_dst)
+
+            if key in STATIC_ROUTES:
+                out_port = STATIC_ROUTES[key]
+                
+                # Reinstall the rule in the switch immediately
+                self._send_flow_mod(
+                    connection=event.connection,
+                    priority=10,
+                    dl_type=0x0800,
+                    nw_src=ip_src,
+                    nw_dst=ip_dst,
+                    out_port=out_port
+                )
+                
+                # And forward this specific packet out
+                msg = of.ofp_packet_out()
+                msg.data = event.ofp
+                msg.in_port = event.port
+                msg.actions.append(of.ofp_action_output(port=out_port))
+                event.connection.send(msg)
 
 def launch():
-    core.registerNew(HybridController)
+    core.registerNew(RoutingController)
