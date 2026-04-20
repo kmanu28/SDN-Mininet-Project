@@ -101,12 +101,19 @@ def scenario_4_throughput(net):
     separator("SCENARIO 4: Throughput Observation (iperf)")
     h1, h3 = net.get('h1', 'h3')
 
-    h3.cmd('iperf -s -D')
+    # Start iperf server on h3 in the background using Mininet's sendCmd
+    h3.sendCmd('iperf -s')
     time.sleep(1)
-    result = h1.cmd('iperf -t 5 -c 10.0.0.3')
-    h3.cmd('pkill -f "iperf -s"')
+
+    # Run iperf client from h1 to h3
+    result = h1.cmd('iperf -c 10.0.0.3 -t 5')
+
+    # Stop the iperf server on h3
+    h3.sendInt()
+    h3.waitOutput()
 
     passed = 'Mbits/sec' in result or 'Gbits/sec' in result
+    print(result.strip())
     print("  [{}] h1 -> h3 throughput measured successfully".format(
         'PASS' if passed else 'FAIL'
     ))
