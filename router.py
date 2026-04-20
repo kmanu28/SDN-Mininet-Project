@@ -144,15 +144,8 @@ class RoutingController(object):
             if key in STATIC_ROUTES:
                 out_port = STATIC_ROUTES[key]
                 
-                # Reinstall the rule in the switch immediately
-                self._send_flow_mod(
-                    connection=event.connection,
-                    priority=10,
-                    dl_type=0x0800,
-                    nw_src=ip_src,
-                    nw_dst=ip_dst,
-                    out_port=out_port
-                )
+                # Reinstall ALL flow rules for this switch to pass the Regression Test
+                self._install_routing_rules(event.connection, dpid)
                 
                 # And forward this specific packet out
                 msg = of.ofp_packet_out()
