@@ -120,13 +120,37 @@ def scenario_4_throughput(net):
     return passed
 
 
+import os
+import atexit
+
+def cleanup():
+    # Kill mininet and pox if they are still lingering
+    subprocess.run(['mn', '-c'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(['fuser', '-k', '6633/tcp'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 if __name__ == '__main__':
     setLogLevel('warning')
     print("\n=== Automated SDN Hybrid Evaluation Suite ===")
+    
+    print("  [1/4] Cleaning previous state...")
+    cleanup()
+    atexit.register(cleanup)
 
+    print("  [2/4] Starting POX Controller in background...")
+    pox_path = os.path.expanduser('~/pox/pox.py')
+    pox_process = subprocess.Popen(
+        [pox_path, 'router'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    time.sleep(2)  # Give POX a moment to start listening
+
+    print("  [3/4] Building Topology and connecting to Controller...")
     net = build_net()
     net.start()
-    time.sleep(3)
+    
+    print("  [4/4] Waiting for Flow Rules to be installed...")
+    time.sleep(5)  # Crucial: switches need time to receive rules from controller
 
     routing_ok = scenario_1_routing(net)
     firewall_ok = scenario_2_firewall(net)
@@ -141,4 +165,7 @@ if __name__ == '__main__':
 
     print("\n  Dropping into Mininet CLI for interaction...")
     CLI(net)
+    
+    print("\n  Shutting down...")
     net.stop()
+    pox_process.terminate()

@@ -147,11 +147,12 @@ class HybridController(object):
                 msg.actions.append(of.ofp_action_output(port=out_port))
                 event.connection.send(msg)
             else:
-                log.warning(
-                    "Unknown ARP target %s on s%s. Dropping.",
-                    target_ip,
-                    dpid
-                )
+                log.warning("Unknown ARP target %s on s%s. Flooding as fallback.", target_ip, dpid)
+                msg = of.ofp_packet_out()
+                msg.data = event.ofp
+                msg.in_port = event.port
+                msg.actions.append(of.ofp_action_output(port=of.OFPP_FLOOD))
+                event.connection.send(msg)
 
 
 def launch():
