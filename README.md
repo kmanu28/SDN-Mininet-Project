@@ -1,62 +1,69 @@
-# Hybrid SDN Router and Firewall using POX
+# SDN Router and Firewall using Mininet and POX
 
 ## Problem Statement
-This project implements an SDN-based solution using Mininet and a POX controller for the assignment rubric. It demonstrates:
 
-- controller-switch interaction through OpenFlow
-- explicit match-action flow rules
-- routing for allowed traffic
-- firewall blocking for restricted traffic
-- network validation using `ping`, `iperf`, and flow-table inspection
+This project implements an SDN-based solution using Mininet and a POX controller. It demonstrates:
 
-The policy enforced by the controller is:
+- Controller–switch interaction through OpenFlow
+- Explicit match–action flow rule design
+- Static routing for allowed traffic across a multi-switch topology
+- Firewall blocking for restricted traffic
+- Network validation using `ping`, `iperf`, and flow-table inspection
 
-- allow `h1 <-> h2`
-- allow `h1 <-> h3`
-- block `h2 <-> h3`
+The access policy enforced by the controller:
+
+| Source | Destination | Policy  |
+|--------|-------------|---------|
+| h1     | h2          | ALLOWED |
+| h1     | h3          | ALLOWED |
+| h2     | h3          | BLOCKED |
+| h3     | h2          | BLOCKED |
+
+---
 
 ## Topology
 
-Hosts:
-
-- `h1` - `10.0.0.1/24`
-- `h2` - `10.0.0.2/24`
-- `h3` - `10.0.0.3/24`
-
-Switches:
-
-- `s1`
-- `s2`
-- `s3`
-
-Controller:
-
-- POX on `127.0.0.1:6633`
-
 ```text
-h1 --- s1 --- s2 --- s3 --- h3
-               |
-              h2
+h1 (10.0.0.1) --- s1 --- s2 --- s3 --- h3 (10.0.0.3)
+                           |
+                      h2 (10.0.0.2)
 ```
 
-## Repository Files
+| Node | Address      | Connected to |
+|------|-------------|--------------|
+| h1   | 10.0.0.1/24 | s1 port 1    |
+| h2   | 10.0.0.2/24 | s2 port 1    |
+| h3   | 10.0.0.3/24 | s3 port 1    |
+| s1   | —           | h1, s2       |
+| s2   | —           | h2, s1, s3   |
+| s3   | —           | h3, s2       |
 
-- `router.py` - POX controller module
-- `topo.py` - Mininet topology launcher
-- `test.py` - automated validation script
-- `screenshots/` - proof of execution for the final submission
+Controller: POX on `127.0.0.1:6633`
+
+---
 
 ## How the Controller Works
 
-The controller installs three types of rules:
+When a switch connects, the controller immediately installs three layers of flow rules:
 
-1. `priority=100` firewall rules to drop blocked IPv4 traffic between `h2` and `h3`
-2. `priority=10` static routing rules for allowed traffic
-3. `priority=0` table-miss rules that send unmatched packets to the controller
+1. **Priority 100 — Firewall (DROP)**: Drops all IPv4 traffic between `h2` and `h3` in both directions.
+2. **Priority 10 — Static Routes (FORWARD)**: Installs forwarding rules for all allowed host pairs across all switches.
+3. **Priority 0 — Table Miss**: Sends any unmatched packet to the controller. Used to forward ARP requests to the correct port.
 
-ARP traffic is handled in `packet_in` so the controller can forward requests to the correct switch port without unnecessary flooding.
+---
 
-## Ubuntu Setup
+## Repository Files
+
+| File | Description |
+|------|-------------|
+| `router.py` | POX controller — installs firewall and routing rules |
+| `topo.py` | Mininet topology — 3 switches, 3 hosts, remote controller |
+| `test.py` | Automated test suite — routing, firewall, flow-table, iperf |
+| `screenshots/` | Proof of execution for the final submission |
+
+---
+
+## Setup (Ubuntu)
 
 ### 1. Install dependencies
 
@@ -71,104 +78,104 @@ sudo apt install -y mininet openvswitch-switch git python3 iperf
 git clone https://github.com/noxrepo/pox.git ~/pox
 ```
 
-### 3. Copy the controller module into POX
-
-From this repository directory:
+### 3. Copy the controller into POX
 
 ```bash
 cp router.py ~/pox/ext/
 ```
 
-## How to Run
+---
 
-Open two terminals on Ubuntu.
+## Running the Project
 
-### Terminal 1: start the controller
+Open **two terminals**.
+
+### Terminal 1 — Start the POX controller
 
 ```bash
 cd ~/pox
 ./pox.py log.level --INFO router
 ```
 
-### Terminal 2: start the topology
+Leave this running. You will see switch connection logs and rule installation messages.
 
-From this repository directory:
+### Terminal 2 — Start the Mininet topology
 
 ```bash
 sudo python3 topo.py
 ```
 
-This opens the Mininet CLI after the network starts.
+This launches the network and drops you into the Mininet CLI.
 
-## Manual Verification Commands
+---
 
-Run these commands in the Mininet CLI:
+## Manual Verification (inside Mininet CLI)
 
 ```bash
+# Routing — should succeed (0% packet loss)
 h1 ping -c 3 h2
 h1 ping -c 3 h3
+
+# Firewall — should fail (100% packet loss)
 h2 ping -c 3 h3
 h3 ping -c 3 h2
+
+# Throughput
 h3 iperf -s &
 h1 iperf -t 5 -c 10.0.0.3
+
+# Flow table inspection
 sh ovs-ofctl dump-flows s2
 ```
 
-Expected results:
-
-- `h1 -> h2` succeeds
-- `h1 -> h3` succeeds
-- `h2 -> h3` fails
-- `h3 -> h2` fails
-- `iperf` between `h1` and `h3` reports throughput
-- `dump-flows` on `s2` shows both routing and firewall entries
+---
 
 ## Automated Testing
 
-Start the POX controller first, then run:
+With the POX controller running in Terminal 1:
 
 ```bash
 sudo python3 test.py
 ```
 
-The script checks:
+The script runs 4 scenarios automatically:
 
-- allowed routing paths
-- blocked firewall paths
-- expected flow-table entries
-- throughput measurement with `iperf`
+1. **Routing** — verifies allowed host pairs reach each other
+2. **Firewall** — verifies blocked pairs show 100% packet loss
+3. **Flow Table** — inspects switch flow tables for correct rule entries
+4. **Throughput** — measures bandwidth with iperf between h1 and h3
+
+After the tests it drops into the Mininet CLI for live demo.
+
+---
 
 ## Expected Output
 
-When the project is running correctly:
+From `ovs-ofctl dump-flows s2`:
 
-- POX logs switch connections for `s1`, `s2`, and `s3`
-- POX installs drop rules for `10.0.0.2 <-> 10.0.0.3`
-- allowed host pairs show `0% packet loss`
-- blocked host pairs show `100% packet loss`
-- `ovs-ofctl dump-flows s2` contains both route matches and firewall matches
+```
+priority=100,ip,nw_src=10.0.0.2,nw_dst=10.0.0.3  actions=drop
+priority=100,ip,nw_src=10.0.0.3,nw_dst=10.0.0.2  actions=drop
+priority=10, ip,nw_src=10.0.0.1,nw_dst=10.0.0.3  actions=output:3
+priority=10, ip,nw_src=10.0.0.1,nw_dst=10.0.0.2  actions=output:1
+...
+priority=0   actions=CONTROLLER:65535
+```
 
-## Proof of Execution
-
-The `screenshots/` directory contains:
-
-- successful ping results
-- blocked ping results
-- flow-table output
-- `iperf` throughput output
-
-These screenshots can be referenced in the final GitHub submission.
+---
 
 ## Cleanup
 
-If Mininet state remains after a run:
+If Mininet state is stuck after a run:
 
 ```bash
 sudo mn -c
 ```
 
+---
+
 ## References
 
-- Mininet walkthrough: http://mininet.org/walkthrough/
-- POX documentation: https://noxrepo.github.io/pox-doc/html/
-- OpenFlow 1.0 specification
+- Mininet Walkthrough: http://mininet.org/walkthrough/
+- POX Documentation: https://noxrepo.github.io/pox-doc/html/
+- OpenFlow 1.0 Specification: https://opennetworking.org/wp-content/uploads/2013/04/openflow-spec-v1.0.0.pdf
