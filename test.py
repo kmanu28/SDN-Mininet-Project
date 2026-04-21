@@ -68,32 +68,40 @@ def build_net():
 
 
 def scenario_1(net):
-    separator("SCENARIO 1: Normal Connectivity")
+    separator("SCENARIO 1: Routing & Firewall Validation")
 
     h1, h2, h3 = net.get('h1', 'h2', 'h3')
 
-    pairs = [
-        (h1, '10.0.0.2', 'h1 -> h2'),
-        (h1, '10.0.0.3', 'h1 -> h3'),
-        (h2, '10.0.0.1', 'h2 -> h1'),
-        (h2, '10.0.0.3', 'h2 -> h3'),
-        (h3, '10.0.0.1', 'h3 -> h1'),
-        (h3, '10.0.0.2', 'h3 -> h2'),
+    # (source_node, destination_ip, label, expected_to_pass)
+    test_cases = [
+        (h1, '10.0.0.2', 'h1 -> h2 (Allowed)', True),
+        (h1, '10.0.0.3', 'h1 -> h3 (Allowed)', True),
+        (h2, '10.0.0.1', 'h2 -> h1 (Allowed)', True),
+        (h2, '10.0.0.3', 'h2 -> h3 (Blocked)', False),
+        (h3, '10.0.0.1', 'h3 -> h1 (Allowed)', True),
+        (h3, '10.0.0.2', 'h3 -> h2 (Blocked)', False),
     ]
 
     all_passed = True
-    for src, dst_ip, label in pairs:
+    for src, dst_ip, label, expected_pass in test_cases:
         result = src.cmd(f"ping -c 3 -W 2 {dst_ip}")
-        passed = '0% packet loss' in result
+        
+        if expected_pass:
+            passed = '0% packet loss' in result
+        else:
+            # For blocked traffic, we expect 100% loss or 'Destination Host Unreachable'
+            passed = '100% packet loss' in result or '0 received' in result
+
         if not passed:
             all_passed = False
+        
         status = "PASS" if passed else "FAIL"
         # Extract rtt line if available
         rtt = [l for l in result.splitlines() if 'rtt' in l or 'round-trip' in l]
         rtt_str = rtt[0].strip() if rtt else "no rtt"
         print(f"  [{status}] {label}  |  {rtt_str}")
 
-    print(f"\n  Scenario 1: {'ALL PASSED ✓' if all_passed else 'SOME FAILED ✗'}")
+    print(f"\n  Scenario 1: {'ALL TESTS PASSED ✓' if all_passed else 'SOME TESTS FAILED ✗'}")
     return all_passed
 
 
@@ -222,7 +230,7 @@ if __name__ == '__main__':
 
     # Final summary
     separator("FINAL RESULTS")
-    print(f"  Scenario 1 — Normal Connectivity : {'PASS ✓' if s1_result else 'FAIL ✗'}")
+    print(f"  Scenario 1 — Routing & Firewall  : {'PASS ✓' if s1_result else 'FAIL ✗'}")
     print(f"  Scenario 2 — Regression Test     : {'PASS ✓' if s2_result else 'FAIL ✗'}")
     print()
 

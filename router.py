@@ -40,6 +40,12 @@ STATIC_ROUTES = {
     (3, '10.0.0.3', '10.0.0.2'): 2,
 }
 
+# --- Firewall Policies (Blocked Pairs) ---
+FIREWALL_RULES = [
+    ('10.0.0.2', '10.0.0.3'),
+    ('10.0.0.3', '10.0.0.2'),
+]
+
 # --- ARP Forwarding Table ---
 ARP_ROUTES = {
     (1, '10.0.0.1'): 1, (1, '10.0.0.2'): 2, (1, '10.0.0.3'): 2,
@@ -51,13 +57,14 @@ class RoutingController(object):
 
     def __init__(self):
         core.openflow.addListeners(self)
-        log.info("Static Router Started. No firewall active. All traffic allowed.")
+        log.info("Static Router and Firewall Started. h2 <-> h3 traffic status: BLOCKED.")
 
     def _handle_ConnectionUp(self, event):
         dpid = event.dpid
         log.info("Switch s%s connected. Installing static routes...", dpid)
 
         self._install_table_miss(event.connection)
+        self._install_firewall_rules(event.connection, dpid)
         self._install_routing_rules(event.connection, dpid)
 
     def _send_flow_mod(self, connection, priority, dl_type=None,
@@ -103,6 +110,24 @@ class RoutingController(object):
                 log.info("  [ROUTE s%s] %s -> %s => port %s", dpid, src_ip, dst_ip, out_port)
         log.info("  Total static routes installed on s%s: %s", dpid, count)
 
+    def _install_firewall_rules(self, connection, dpid):
+        """Install high-priority DROP rules for blocked traffic."""
+        count = 0
+        for src_ip, dst_ip in FIREWALL_RULES:
+            # We install firewall rules on s2 (the central switch) or all switches.
+            # To be robust, we install on all switches in this linear topology.
+            self._send_flow_mod(
+                connection=connection,
+                priority=100,  # Higher than routing priority
+                dl_type=0x0800,
+                nw_src=src_ip,
+                nw_dst=dst_ip
+                # No out_port specified = DROP action in POX/OpenFlow 1.0
+            )
+            count += 1
+            log.info("  [FIREWALL s%s] %s -> %s => DROP", dpid, src_ip, dst_ip)
+        log.info("  Total firewall rules installed on s%s: %s", dpid, count)
+
     def _handle_PacketIn(self, event):
         """Handle packets not matched by the switch flow tables (e.g. ARP, or fallback IP)."""
         dpid = event.dpid
@@ -145,6 +170,7 @@ class RoutingController(object):
                 out_port = STATIC_ROUTES[key]
                 
                 # Reinstall ALL flow rules for this switch to pass the Regression Test
+                self._install_firewall_rules(event.connection, dpid)
                 self._install_routing_rules(event.connection, dpid)
                 
                 # And forward this specific packet out
